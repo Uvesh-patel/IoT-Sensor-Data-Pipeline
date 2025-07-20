@@ -1,0 +1,136 @@
+version: '3.9'
+
+services:
+  # MongoDB - Database used by Orion-LD
+  mongo-db:
+    image: mongo:4.4
+    hostname: mongo-db
+    container_name: fiware-mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - fiware-net
+    volumes:
+      - mongo-db:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Orion-LD Context Broker
+  orion-ld:
+    image: fiware/orion-ld
+    hostname: orion-ld
+    container_name: fiware-orion
+    depends_on:
+      - mongo-db
+    ports:
+      - "1026:1026"
+    networks:
+      - fiware-net
+    environment:
+      - ORIONLD_MONGO_HOST=mongo-db
+      - ORIONLD_LOG_LEVEL=DEBUG
+    healthcheck:
+      test: curl --fail -s http://localhost:1026/version || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: -dbhost mongo-db -logLevel DEBUG
+
+  # HBase (includes Zookeeper)
+  hbase:
+    image: harisekhon/hbase
+    container_name: hbase
+    hostname: hbase
+    ports:
+      - "16000:16000"  # HBase Master
+      - "16010:16010"  # HBase Master Web UI
+      - "16020:16020"  # HBase Regionserver
+      - "16030:16030"  # HBase Regionserver Web UI
+      - "2181:2181"    # Zookeeper
+      - "9090:9090"    # HBase Thrift server
+      - "9095:9095"    # HBase REST server
+    networks:
+      - fiware-net
+    environment:
+      - HBASE_MANAGES_ZK=true
+      # Add explicit heap configuration to avoid memory issues
+      - HBASE_MASTER_OPTS=-Xmx1g
+      - HBASE_REGIONSERVER_OPTS=-Xmx1g
+    # Use persistent volumes to ensure data survives restarts
+    volumes:
+      - hbase-data:/hbase-data
+      - hbase-tmp:/tmp
+    healthcheck:
+      # More robust health check that verifies Master process is running
+      test: ["CMD", "bash", "-c", "netstat -tuln | grep -q 16010 && ps aux | grep -v grep | grep -q HMaster && echo 'HBase Master UI is running' && exit 0 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Java App - Builds and runs the Java application to fetch from Orion-LD and insert into HBase
+  java-app:
+    build:
+      context: ./java-app
+      dockerfile: Dockerfile
+    container_name: java-app
+    networks:
+      - fiware-net
+    depends_on:
+      orion-ld:
+        condition: service_healthy
+      hbase:
+        condition: service_healthy
+    # Don't mount the whole directory as it would override the JAR file
+    volumes:
+      - ./java-app/src:/app/src-local
+    environment:
+      - CREATE_SENSOR_TABLE=true  # Set to true to run the table creation when container starts
+      - TEST_ORION_FETCHER=true
+      - ORION_HOST=fiware-orion
+      - HBASE_ZOOKEEPER_QUORUM=hbase
+      - HBASE_MASTER=hbase:16000
+    profiles:
+      - manual
+
+  # Mahout bridge service - for processing HBase data with Mahout ML
+  java-mahout:
+    build:
+      context: ./java-mahout
+      dockerfile: Dockerfile
+    container_name: java-mahout
+    networks:
+      - fiware-net
+    depends_on:
+      hbase:
+        condition: service_healthy
+    volumes:
+      - ./java-mahout/src:/app/src-local
+      - ./java-mahout/output:/app/output
+      - mahout-data:/tmp/mahout
+    environment:
+      - TEST_CONNECTION=false
+      - EXPORT_TO_CSV=true
+      - USE_ENHANCED_EXPORTER=false
+      - MAHOUT_FORMAT=raw
+      - ROW_LIMIT=0
+      - OUTPUT_PATH=/app/output/hbase_raw_export.csv
+      - HBASE_ZOOKEEPER_QUORUM=hbase
+      - JAVA_TOOL_OPTIONS=-Dlog4j.debug
+    profiles:
+      - mahout
+
+networks:
+  fiware-net:
+    driver: bridge
+
+volumes:
+  mongo-db: {}
+  hbase-data: {}
+  hbase-tmp: {}
+  mahout-data: {}
