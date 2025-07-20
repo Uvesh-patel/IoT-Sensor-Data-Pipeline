@@ -1,0 +1,5 @@
+com\example\MahoutDataExporter$SensorReading.class
+com\example\MahoutDataExporter$1.class
+com\example\MahoutDataExporter.class
+com\example\HBaseToMahoutExporter.class
+com\example\MahoutDataExporter$ExportFormat.class

@@ -1,0 +1,11 @@
+# Ignore the updated README file (work in progress)
+README_updated.md
+
+# Common files to ignore
+*.log
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+*$py.class
