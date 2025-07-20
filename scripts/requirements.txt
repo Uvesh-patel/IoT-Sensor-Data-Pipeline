@@ -1,0 +1,13 @@
+# Python Requirements for CSV to NGSI-LD Conversion Scripts
+# All dependencies are from Python standard library - no external packages needed
+
+# Standard library modules used:
+# - json: JSON parsing and manipulation
+# - csv: CSV file reading and writing
+# - os: File system operations and path handling
+# - glob: File pattern matching for CSV discovery
+# - urllib: HTTP client for REST API requests
+# - time: Time-related functions and sleep operations
+# - random: Random sampling for verification scripts
+
+# No external dependencies required - Python 3.6+ standard library is sufficient
